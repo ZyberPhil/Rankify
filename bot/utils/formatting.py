@@ -16,7 +16,7 @@ THEME_COLORS = {
 
 def money_cents_to_eur(amount_cents: int) -> str:
     euros = amount_cents / 100
-    return f"{euros:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"€{euros:,.2f}"
 
 
 def create_lawliet_embed(
@@ -32,7 +32,7 @@ def create_lawliet_embed(
     avatar_url = getattr(getattr(bot_user, "display_avatar", None), "url", None)
     if avatar_url:
         embed.set_thumbnail(url=avatar_url)
-    embed.set_footer(text="ValorantDeren", icon_url=avatar_url)
+    embed.set_footer(text="Rankify", icon_url=avatar_url)
     return embed
 
 

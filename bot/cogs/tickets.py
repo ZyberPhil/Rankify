@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+from io import BytesIO
 import json
+import mimetypes
 
 import discord
 from discord import app_commands
 from discord.ext import commands
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import mm
+from reportlab.lib.utils import ImageReader
+from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from bot.services import resolve_or_create_user
 from bot.utils.audit import send_staff_audit_log
@@ -286,7 +294,7 @@ class ApplicationTicketButton(discord.ui.View):
                 if user is None:
                     user = await self.cog.bot.fetch_user(int(applicant_row["discord_id"]))
                 await user.send(
-                    "✅ Your booster application was accepted. Please accept the booster rules with `/verify_rules` in the server to unlock booster access."
+                    "✅ Your booster application was accepted. Please accept the booster rules in <#1544119579335196752> in the server to unlock booster access."
                 )
             except (discord.NotFound, discord.Forbidden):
                 pass
@@ -399,6 +407,237 @@ class TicketCog(commands.Cog):
                 )
         return overwrites
 
+    async def _archive_ticket_channel(self, channel: discord.TextChannel) -> None:
+        archive_category = self._get_channel(self.settings.archived_ticket_category_id)
+        archive_category_obj = archive_category if isinstance(archive_category, discord.CategoryChannel) else None
+        guild = channel.guild
+        overwrites = self._staff_overwrites(guild)
+
+        bot_member = guild.me or guild.get_member(self.bot.user.id)
+        if bot_member is not None:
+            overwrites[bot_member] = discord.PermissionOverwrite(
+                view_channel=True, send_messages=True, read_message_history=True
+            )
+
+        edit_kwargs: dict[str, object] = {
+            "name": f"closed-{channel.name}"[:90],
+            "overwrites": overwrites,
+            "reason": "Ticket archived",
+        }
+        if archive_category_obj is not None:
+            edit_kwargs["category"] = archive_category_obj
+        await channel.edit(**edit_kwargs)
+
+    async def _build_ticket_transcript(self, channel: discord.TextChannel) -> bytes:
+        messages = [message async for message in channel.history(limit=None, oldest_first=True)]
+        output = BytesIO()
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle(
+            "TicketTitle", parent=styles["Heading1"], fontName="Helvetica-Bold",
+            fontSize=18, leading=22, textColor=colors.white, spaceAfter=2,
+        )
+        subtitle_style = ParagraphStyle(
+            "TicketSubtitle", parent=styles["Normal"], fontName="Helvetica",
+            fontSize=9, leading=12, textColor=colors.HexColor("#949ba4"),
+        )
+        author_style = ParagraphStyle(
+            "Author", parent=styles["Normal"], fontName="Helvetica-Bold",
+            fontSize=10, leading=13, textColor=colors.white,
+        )
+        content_style = ParagraphStyle(
+            "Content", parent=styles["Normal"], fontName="Helvetica",
+            fontSize=10, leading=14, textColor=colors.HexColor("#dbdee1"),
+            wordWrap="CJK",
+        )
+        meta_style = ParagraphStyle(
+            "Meta", parent=styles["Normal"], fontName="Helvetica",
+            fontSize=7.5, leading=10, textColor=colors.HexColor("#949ba4"),
+        )
+        link_style = ParagraphStyle(
+            "Link", parent=content_style, textColor=colors.HexColor("#00a8fc"),
+        )
+        story = [
+            Paragraph(f"#{self._pdf_escape(channel.name)}", title_style),
+            Paragraph("Ticket transcript", subtitle_style),
+            Spacer(1, 8 * mm),
+        ]
+        for message in messages:
+            author = self._pdf_escape(message.author.display_name)
+            timestamp = self._pdf_escape(message.created_at.strftime("%Y-%m-%d %H:%M:%S UTC"))
+            author_initials = self._pdf_escape(message.author.display_name[:2].upper() or "?")
+            header = Paragraph(f"{author} <font color='#949ba4' size='7.5'>{timestamp}</font>", author_style)
+            content = self._pdf_escape(message.content).replace("\n", "<br/>") or "<font color='#949ba4'>(no text)</font>"
+            body = [header, Paragraph(content, content_style)]
+            for attachment in message.attachments:
+                attachment_url = self._pdf_escape(attachment.url)
+                attachment_size = self._format_attachment_size(getattr(attachment, "size", 0))
+                body.append(Paragraph(
+                    f"<b>Attachment:</b> <link href='{attachment_url}'>"
+                    f"<font color='#00a8fc'>{self._pdf_escape(attachment.filename)}</font></link> "
+                    f"<font color='#949ba4'>({attachment_size})</font><br/>"
+                    f"<font size='7' color='#949ba4'>{attachment_url}</font>", link_style,
+                ))
+                attachment_type = str(getattr(attachment, "content_type", "") or "")
+                is_image = attachment_type.startswith("image/") or (
+                    mimetypes.guess_type(attachment.filename)[0] or ""
+                ).startswith("image/")
+                if is_image:
+                    try:
+                        image_data = await attachment.read()
+                        image_reader = ImageReader(BytesIO(image_data))
+                        image_width, image_height = image_reader.getSize()
+                        max_width = 135 * mm
+                        max_height = 90 * mm
+                        scale = min(max_width / image_width, max_height / image_height, 1)
+                        image = Image(
+                            BytesIO(image_data),
+                            width=image_width * scale,
+                            height=image_height * scale,
+                        )
+                        image.hAlign = "LEFT"
+                        image._restrictSize(max_width, max_height)
+                        body.append(image)
+                        body.append(Spacer(1, 2 * mm))
+                    except (discord.Forbidden, discord.HTTPException, discord.NotFound, OSError, ValueError):
+                        pass
+            for embed in message.embeds:
+                embed_title = self._pdf_escape(embed.title or "Embed")
+                embed_description = self._pdf_escape(embed.description or "").replace("\n", "<br/>")
+                body.append(Table(
+                    [[Paragraph(f"<b>{embed_title}</b><br/>{embed_description}", content_style)]],
+                    colWidths=[140 * mm],
+                    style=TableStyle([
+                        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#2b2d31")),
+                        ("LINEBEFORE", (0, 0), (0, -1), 3, colors.HexColor("#5865f2")),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                        ("TOPPADDING", (0, 0), (-1, -1), 6),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                    ]),
+                ))
+            message_table = Table(
+                [[Paragraph(f"<b>{author_initials}</b>", author_style), body]],
+                colWidths=[13 * mm, 140 * mm],
+                hAlign="LEFT",
+                style=TableStyle([
+                    ("BACKGROUND", (0, 0), (0, 0), colors.HexColor("#5865f2")),
+                    ("BACKGROUND", (1, 0), (1, 0), colors.HexColor("#313338")),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("ALIGN", (0, 0), (0, 0), "CENTER"),
+                    ("LEFTPADDING", (0, 0), (0, 0), 4),
+                    ("RIGHTPADDING", (0, 0), (0, 0), 4),
+                    ("LEFTPADDING", (1, 0), (1, 0), 10),
+                    ("RIGHTPADDING", (1, 0), (1, 0), 10),
+                    ("TOPPADDING", (0, 0), (-1, -1), 7),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+                ]),
+            )
+            story.extend([message_table, Spacer(1, 3 * mm)])
+
+        def draw_background(canvas, document) -> None:
+            canvas.saveState()
+            canvas.setFillColor(colors.HexColor("#313338"))
+            canvas.rect(0, 0, A4[0], A4[1], fill=1, stroke=0)
+            canvas.setFillColor(colors.HexColor("#1e1f22"))
+            canvas.rect(0, A4[1] - 12 * mm, A4[0], 12 * mm, fill=1, stroke=0)
+            canvas.setFillColor(colors.HexColor("#949ba4"))
+            canvas.setFont("Helvetica", 7)
+            canvas.drawRightString(A4[0] - 15 * mm, 8 * mm, f"Page {document.page}")
+            canvas.restoreState()
+
+        document = SimpleDocTemplate(
+            output, pagesize=A4, rightMargin=15 * mm, leftMargin=15 * mm,
+            topMargin=18 * mm, bottomMargin=15 * mm,
+            title=f"Ticket transcript: {channel.name}",
+        )
+        document.build(story, onFirstPage=draw_background, onLaterPages=draw_background)
+        return output.getvalue()
+
+    @staticmethod
+    def _pdf_escape(value: str) -> str:
+        return (
+            str(value).replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;")
+        )
+
+    @staticmethod
+    def _format_attachment_size(size: int | None) -> str:
+        value = max(int(size or 0), 0)
+        for unit in ("B", "KB", "MB", "GB"):
+            if value < 1024 or unit == "GB":
+                return f"{value:.1f} {unit}" if unit != "B" else f"{value} B"
+            value /= 1024
+        return "0 B"
+
+    async def _send_ticket_transcript(self, channel: discord.TextChannel, opener_user_id: int) -> bool:
+        try:
+            transcript = await self._build_ticket_transcript(channel)
+        except (discord.Forbidden, discord.HTTPException):
+            return False
+
+        filename = f"{channel.name}-transcript.pdf"
+        original_files: list[tuple[str, bytes]] = []
+        try:
+            messages = [message async for message in channel.history(limit=None, oldest_first=True)]
+            for message in messages:
+                for attachment in message.attachments:
+                    try:
+                        original_files.append((attachment.filename, await attachment.read()))
+                    except (discord.Forbidden, discord.HTTPException, discord.NotFound):
+                        continue
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+
+        log_delivered = False
+        transcript_channel = self._get_channel(self.settings.ticket_transcript_channel_id)
+        if isinstance(transcript_channel, discord.TextChannel):
+            try:
+                await transcript_channel.send(
+                    content=f"📄 PDF transcript for **{channel.name}**",
+                    file=discord.File(BytesIO(transcript), filename=filename),
+                )
+                for original_filename, original_data in original_files:
+                    await transcript_channel.send(
+                        content=f"📎 Original attachment: **{original_filename}**",
+                        file=discord.File(BytesIO(original_data), filename=original_filename),
+                    )
+                log_delivered = True
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+
+        opener = await self.bot.db.fetchone(
+            "SELECT discord_id FROM users WHERE id = ?", (opener_user_id,)
+        )
+        if opener is not None and opener["discord_id"] is not None:
+            try:
+                user = self.bot.get_user(int(opener["discord_id"]))
+                if user is None:
+                    user = await self.bot.fetch_user(int(opener["discord_id"]))
+                await user.send(
+                    content=f"📄 Here is the PDF transcript for your ticket **{channel.name}**.",
+                    file=discord.File(BytesIO(transcript), filename=filename),
+                )
+                for original_filename, original_data in original_files:
+                    await user.send(
+                        content=f"📎 Original attachment: **{original_filename}**",
+                        file=discord.File(BytesIO(original_data), filename=original_filename),
+                    )
+            except (discord.Forbidden, discord.HTTPException, discord.NotFound):
+                pass
+        return log_delivered
+
+    async def _delete_ticket_channel(self, channel: discord.TextChannel) -> None:
+        try:
+            await channel.delete(reason="Ticket closed and transcript archived")
+        except discord.NotFound:
+            # The channel may already have been deleted by a duplicate close action.
+            return
+        except (discord.Forbidden, discord.HTTPException):
+            try:
+                await self._archive_ticket_channel(channel)
+            except discord.NotFound:
+                return
+
     async def _create_ticket_channel(
         self,
         member: discord.Member,
@@ -487,6 +726,14 @@ class TicketCog(commands.Cog):
             (channel.id,),
         )
         if ticket_row is not None:
+            transcript_sent = await self._send_ticket_transcript(channel, int(ticket_row["opener_user_id"]))
+            if not transcript_sent:
+                await safe_interaction_response(
+                    interaction,
+                    "❌ Transcript could not be delivered. The ticket remains open.",
+                    ephemeral=True,
+                )
+                return
             closer_user_id = await resolve_or_create_user(
                 self.bot.db,
                 member,
@@ -504,13 +751,15 @@ class TicketCog(commands.Cog):
                 """,
                 (closer_user_id, ticket_row["id"]),
             )
-            await channel.edit(name=f"closed-{channel.name}"[:90])
+            await self._delete_ticket_channel(channel)
 
     async def close_ticket(self, interaction: discord.Interaction) -> None:
         member = interaction.user if isinstance(interaction.user, discord.Member) else None
         channel = interaction.channel if isinstance(interaction.channel, discord.TextChannel) else None
         if member is None or channel is None:
             raise app_commands.CheckFailure("Invalid context.")
+
+        await interaction.response.defer(ephemeral=True)
 
         ticket = await self.bot.db.fetchone(
             "SELECT id, opener_user_id FROM tickets WHERE channel_id = ? AND status = 'open'",
@@ -543,6 +792,14 @@ class TicketCog(commands.Cog):
             self.settings.staff_role_ids,
             self.settings.admin_role_ids,
         )
+        transcript_sent = await self._send_ticket_transcript(channel, int(ticket["opener_user_id"]))
+        if not transcript_sent:
+            await safe_interaction_response(
+                interaction,
+                "❌ Transcript could not be delivered. The ticket remains open.",
+                ephemeral=True,
+            )
+            return
         await self.bot.db.execute(
             """
             UPDATE tickets
@@ -555,7 +812,7 @@ class TicketCog(commands.Cog):
             (closer_user_id, ticket["id"]),
         )
         await safe_interaction_response(interaction, "🔒 Closing ticket.", ephemeral=True)
-        await channel.edit(name=f"closed-{channel.name}"[:90])
+        await self._delete_ticket_channel(channel)
         await send_staff_audit_log(
             self.bot,
             title="Ticket Closed",

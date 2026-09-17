@@ -91,9 +91,13 @@ class Settings:
     staff_audit_log_channel_id: int | None
     referral_log_channel_id: int | None
     expired_order_action_channel_id: int | None
+    referral_earning_channel_id: int | None = None
     welcome_channel_id: int | None = None
     booster_approval_role_id: int | None = None
     booster_verify_channel_id: int | None = None
+    archived_ticket_category_id: int | None = None
+    ticket_transcript_channel_id: int | None = None
+    suggestion_channel_id: int | None = None
 
 
 def load_settings() -> Settings:
@@ -140,9 +144,13 @@ def load_settings() -> Settings:
         support_ticket_category_id=_optional_int_env("SUPPORT_TICKET_CATEGORY_ID"),
         payout_ticket_category_id=_optional_int_env("PAYOUT_TICKET_CATEGORY_ID"),
         application_ticket_category_id=_optional_int_env("APPLICATION_TICKET_CATEGORY_ID"),
+        archived_ticket_category_id=_optional_int_env("ARCHIVED_TICKET_CATEGORY_ID"),
+        ticket_transcript_channel_id=_optional_int_env("TICKET_TRANSCRIPT_CHANNEL_ID"),
+        suggestion_channel_id=_optional_int_env("SUGGESTION_CHANNEL_ID"),
         application_review_channel_id=_optional_int_env("APPLICATION_REVIEW_CHANNEL_ID"),
         staff_audit_log_channel_id=_optional_int_env("STAFF_AUDIT_LOG_CHANNEL_ID"),
         referral_log_channel_id=_optional_int_env("REFERRAL_LOG_CHANNEL_ID"),
+        referral_earning_channel_id=_optional_int_env("REFERRAL_EARNING_CHANNEL_ID"),
         expired_order_action_channel_id=_optional_int_env("EXPIRED_ORDER_ACTION_CHANNEL_ID"),
     )
 
@@ -183,9 +191,13 @@ async def apply_persistent_settings(db, settings: Settings) -> Settings:
             "support_ticket_category_id",
             "payout_ticket_category_id",
             "application_ticket_category_id",
+            "archived_ticket_category_id",
+            "ticket_transcript_channel_id",
+            "suggestion_channel_id",
             "application_review_channel_id",
             "staff_audit_log_channel_id",
             "referral_log_channel_id",
+            "referral_earning_channel_id",
             "expired_order_action_channel_id",
             "guild_id",
         }:
@@ -218,9 +230,13 @@ async def apply_persistent_settings(db, settings: Settings) -> Settings:
         "support_ticket_category_id": settings.support_ticket_category_id,
         "payout_ticket_category_id": settings.payout_ticket_category_id,
         "application_ticket_category_id": settings.application_ticket_category_id,
+        "archived_ticket_category_id": settings.archived_ticket_category_id,
+        "ticket_transcript_channel_id": settings.ticket_transcript_channel_id,
+        "suggestion_channel_id": settings.suggestion_channel_id,
         "application_review_channel_id": settings.application_review_channel_id,
         "staff_audit_log_channel_id": settings.staff_audit_log_channel_id,
         "referral_log_channel_id": settings.referral_log_channel_id,
+        "referral_earning_channel_id": settings.referral_earning_channel_id,
         "expired_order_action_channel_id": settings.expired_order_action_channel_id,
     }
     for key, value in overrides.items():
@@ -253,9 +269,13 @@ async def persist_settings(db, settings: Settings) -> None:
         "support_ticket_category_id": "" if settings.support_ticket_category_id is None else str(settings.support_ticket_category_id),
         "payout_ticket_category_id": "" if settings.payout_ticket_category_id is None else str(settings.payout_ticket_category_id),
         "application_ticket_category_id": "" if settings.application_ticket_category_id is None else str(settings.application_ticket_category_id),
+        "archived_ticket_category_id": "" if settings.archived_ticket_category_id is None else str(settings.archived_ticket_category_id),
+        "ticket_transcript_channel_id": "" if settings.ticket_transcript_channel_id is None else str(settings.ticket_transcript_channel_id),
+        "suggestion_channel_id": "" if settings.suggestion_channel_id is None else str(settings.suggestion_channel_id),
         "application_review_channel_id": "" if settings.application_review_channel_id is None else str(settings.application_review_channel_id),
         "staff_audit_log_channel_id": "" if settings.staff_audit_log_channel_id is None else str(settings.staff_audit_log_channel_id),
         "referral_log_channel_id": "" if settings.referral_log_channel_id is None else str(settings.referral_log_channel_id),
+        "referral_earning_channel_id": "" if settings.referral_earning_channel_id is None else str(settings.referral_earning_channel_id),
         "expired_order_action_channel_id": "" if settings.expired_order_action_channel_id is None else str(settings.expired_order_action_channel_id),
     }
     for name, value in values.items():

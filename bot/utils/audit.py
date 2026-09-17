@@ -24,7 +24,7 @@ async def send_staff_audit_log(
     avatar_url = getattr(getattr(bot_user, "display_avatar", None), "url", None)
     if avatar_url is not None:
         embed.set_thumbnail(url=avatar_url)
-    embed.set_footer(text="ValorantDeren", icon_url=avatar_url)
+    embed.set_footer(text="Rankify", icon_url=avatar_url)
     for name, value, inline in fields:
         embed.add_field(name=name, value=value, inline=inline)
     await channel.send(embed=embed)
@@ -48,10 +48,48 @@ async def send_referral_audit_log(
     avatar_url = getattr(getattr(bot_user, "display_avatar", None), "url", None)
     if avatar_url is not None:
         embed.set_thumbnail(url=avatar_url)
-    embed.set_footer(text="ValorantDeren", icon_url=avatar_url)
+    embed.set_footer(text="Rankify", icon_url=avatar_url)
     for name, value, inline in fields:
         embed.add_field(name=name, value=value, inline=inline)
     await channel.send(embed=embed)
+
+
+async def send_referral_earning_notification(
+    bot: commands.Bot,
+    referrer_discord_id: int,
+    referred_booster_discord_id: int,
+) -> None:
+    channel_id = getattr(bot.settings, "referral_earning_channel_id", None)
+    if channel_id is None:
+        bot.logger.warning("Referral earning notification skipped: no channel configured.")
+        return
+    channel = bot.get_channel(channel_id)
+    if channel is None:
+        try:
+            channel = await bot.fetch_channel(channel_id)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            bot.logger.warning("Referral earning notification skipped: channel %s not found or inaccessible.", channel_id)
+            return
+    if not isinstance(channel, discord.TextChannel):
+        bot.logger.warning("Referral earning notification skipped: channel %s is not a text channel.", channel_id)
+        return
+
+    try:
+        await channel.send(
+            embed=discord.Embed(
+                title="Referral earning",
+                description=(
+                    f"<@{referrer_discord_id}> earned through referred booster "
+                    f"<@{referred_booster_discord_id}>."
+                ),
+                color=0x10B981,
+            )
+        )
+    except discord.Forbidden:
+        bot.logger.warning("Referral earning notification failed: no permission to write in channel %s.", channel_id)
+    except discord.HTTPException:
+        bot.logger.warning("Referral earning notification failed: Discord rejected the message in channel %s.", channel_id)
+        return
 
 
 async def send_booster_milestone_announcement(
@@ -76,7 +114,7 @@ async def send_booster_milestone_announcement(
     avatar_url = getattr(getattr(bot_user, "display_avatar", None), "url", None)
     if avatar_url is not None:
         embed.set_thumbnail(url=avatar_url)
-    embed.set_footer(text="ValorantDeren", icon_url=avatar_url)
+    embed.set_footer(text="Rankify", icon_url=avatar_url)
     embed.add_field(
         name="Reached thresholds",
         value=", ".join(f"{threshold} orders" for threshold in reached_thresholds),

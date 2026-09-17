@@ -1256,7 +1256,7 @@ class BoosterCog(commands.Cog):
             total_pages = max(1, (total_count + page_size - 1) // page_size)
             bot_user = getattr(self.bot, "user", None)
             avatar_url = getattr(getattr(bot_user, "display_avatar", None), "url", None)
-            embed.set_footer(text=f"Page {page}/{total_pages} • ValorantDeren", icon_url=avatar_url)
+            embed.set_footer(text=f"Page {page}/{total_pages} • Rankify", icon_url=avatar_url)
         return embed
 
     @app_commands.command(name="leaderboard_teams", description="Shows the team leaderboard.")

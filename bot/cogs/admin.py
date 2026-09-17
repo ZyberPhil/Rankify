@@ -53,9 +53,13 @@ class AdminCog(commands.Cog):
             "support_ticket_category_id": current.support_ticket_category_id,
             "payout_ticket_category_id": current.payout_ticket_category_id,
             "application_ticket_category_id": current.application_ticket_category_id,
+            "archived_ticket_category_id": current.archived_ticket_category_id,
+            "ticket_transcript_channel_id": current.ticket_transcript_channel_id,
+            "suggestion_channel_id": current.suggestion_channel_id,
             "application_review_channel_id": current.application_review_channel_id,
             "staff_audit_log_channel_id": current.staff_audit_log_channel_id,
             "referral_log_channel_id": current.referral_log_channel_id,
+            "referral_earning_channel_id": current.referral_earning_channel_id,
             "expired_order_action_channel_id": current.expired_order_action_channel_id,
         }
         merged.update(overrides)
@@ -68,7 +72,7 @@ class AdminCog(commands.Cog):
         orders_cog = self.bot.get_cog("OrdersCog")
         if orders_cog is not None:
             orders_cog.settings = self.bot.settings
-        tickets_cog = self.bot.get_cog("TicketsCog")
+        tickets_cog = self.bot.get_cog("TicketCog")
         if tickets_cog is not None:
             tickets_cog.settings = self.bot.settings
 
@@ -109,6 +113,72 @@ class AdminCog(commands.Cog):
             f"✅ Channel {channel.mention} configured as a command-only channel.",
             ephemeral=True,
         )
+
+    @app_commands.command(
+        name="set_archived_ticket_category",
+        description="Sets the category where closed tickets are archived.",
+    )
+    @app_commands.describe(category="Category where closed tickets should be moved")
+    @staff_only()
+    async def set_archived_ticket_category(
+        self, interaction: discord.Interaction, category: discord.CategoryChannel
+    ) -> None:
+        self._apply_settings(archived_ticket_category_id=category.id)
+        await persist_settings(self.bot.db, self.bot.settings)
+        await safe_admin_response(
+            interaction,
+            f"✅ Closed tickets will be archived in **{category.name}**.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(
+        name="set_ticket_transcript_channel",
+        description="Sets the private channel where closed ticket transcripts are stored.",
+    )
+    @app_commands.describe(channel="Private staff channel for HTML ticket transcripts")
+    @staff_only()
+    async def set_ticket_transcript_channel(
+        self, interaction: discord.Interaction, channel: discord.TextChannel
+    ) -> None:
+        self._apply_settings(ticket_transcript_channel_id=channel.id)
+        await persist_settings(self.bot.db, self.bot.settings)
+        await safe_admin_response(
+            interaction,
+            f"✅ Ticket transcripts will be saved in {channel.mention}.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(
+        name="set_suggestion_channel",
+        description="Sets the channel where user suggestions are published.",
+    )
+    @app_commands.describe(channel="Channel where suggestions should be posted")
+    @staff_only()
+    async def set_suggestion_channel(
+        self, interaction: discord.Interaction, channel: discord.TextChannel
+    ) -> None:
+        self._apply_settings(suggestion_channel_id=channel.id)
+        await persist_settings(self.bot.db, self.bot.settings)
+        suggestions_cog = self.bot.get_cog("SuggestionsCog")
+        if suggestions_cog is not None:
+            suggestions_cog.settings = self.bot.settings
+        await safe_admin_response(
+            interaction,
+            f"✅ Suggestions will be posted in {channel.mention}.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(
+        name="suggestions_setup",
+        description="Posts the suggestions dashboard in the configured channel.",
+    )
+    @staff_only()
+    async def suggestions_setup(self, interaction: discord.Interaction) -> None:
+        suggestions_cog = self.bot.get_cog("SuggestionsCog")
+        if suggestions_cog is None:
+            await safe_admin_response(interaction, "❌ The suggestions dashboard is unavailable.", ephemeral=True)
+            return
+        await suggestions_cog.post_dashboard(interaction)
 
     @app_commands.command(
         name="set_booster_role",
@@ -190,6 +260,23 @@ class AdminCog(commands.Cog):
         await safe_admin_response(
             interaction,
             f"✅ Referral log channel set to {channel.mention}.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(
+        name="set_referral_earning_channel",
+        description="Sets the channel for referral earning notifications.",
+    )
+    @app_commands.describe(channel="Channel where referral earning notifications are posted")
+    @staff_only()
+    async def set_referral_earning_channel(
+        self, interaction: discord.Interaction, channel: discord.TextChannel
+    ) -> None:
+        self._apply_settings(referral_earning_channel_id=channel.id)
+        await persist_settings(self.bot.db, self.bot.settings)
+        await safe_admin_response(
+            interaction,
+            f"✅ Referral earning notifications will be posted in {channel.mention}.",
             ephemeral=True,
         )
 

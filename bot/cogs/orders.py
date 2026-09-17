@@ -7,7 +7,12 @@ from discord import app_commands
 from discord.ext import commands
 
 from bot.services import can_transition_order, resolve_or_create_user
-from bot.utils.audit import send_booster_milestone_announcement, send_referral_audit_log, send_staff_audit_log
+from bot.utils.audit import (
+    send_booster_milestone_announcement,
+    send_referral_audit_log,
+    send_referral_earning_notification,
+    send_staff_audit_log,
+)
 from bot.utils.checks import guild_only, staff_only
 from bot.utils.formatting import create_lawliet_embed, money_cents_to_eur, parse_eur_to_cents, THEME_COLORS
 from bot.utils.ids import generate_order_number
@@ -180,6 +185,22 @@ class OrdersCog(commands.Cog):
             "INSERT INTO transactions (user_id, order_id, type, status, amount_cents, note, processed_at) VALUES (?, ?, 'manual_adjustment', 'approved', ?, ?, CURRENT_TIMESTAMP)",
             (owner_user_id, final_order_id, bonus_cents, "Team owner bonus for team member payout"),
         )
+        async with db.execute(
+            "SELECT discord_id FROM users WHERE id = ?",
+            (owner_user_id,),
+        ) as owner_cursor:
+            owner_row = await owner_cursor.fetchone()
+        async with db.execute(
+            "SELECT discord_id FROM users WHERE id = ?",
+            (member_user_id,),
+        ) as member_cursor:
+            member_row = await member_cursor.fetchone()
+        if owner_row is not None and member_row is not None:
+            await send_referral_earning_notification(
+                self.bot,
+                int(owner_row["discord_id"]),
+                int(member_row["discord_id"]),
+            )
         return bonus_cents
 
     async def cog_load(self) -> None:
@@ -396,10 +417,11 @@ class OrdersCog(commands.Cog):
                     return
                 return
 
-            booster_row = await db.fetchone(
+            async with db.execute(
                 "SELECT booster_level FROM users WHERE id = ?",
                 (booster_user_id,),
-            )
+            ) as booster_cursor:
+                booster_row = await booster_cursor.fetchone()
             if booster_row is None:
                 try:
                     await interaction.response.send_message(
@@ -412,10 +434,11 @@ class OrdersCog(commands.Cog):
 
             max_active_orders = self.get_active_order_limit_for_booster_level(int(booster_row["booster_level"]))
             if max_active_orders is not None:
-                active_count_row = await db.fetchone(
+                async with db.execute(
                     "SELECT COUNT(*) AS active_count FROM orders WHERE assigned_booster_user_id = ? AND status IN ('claimed', 'in_progress')",
                     (booster_user_id,),
-                )
+                ) as active_cursor:
+                    active_count_row = await active_cursor.fetchone()
                 active_count = int(active_count_row["active_count"]) if active_count_row is not None else 0
                 if active_count >= max_active_orders:
                     tier_label = self.get_booster_tier_label(int(booster_row["booster_level"]))
@@ -884,11 +907,23 @@ class OrdersCog(commands.Cog):
                             f"Referral bonus for {order_number}",
                         ),
                     )
-                    referrer_row = await db.fetchone(
+                    async with db.execute(
                         "SELECT discord_id, username FROM users WHERE id = ?",
                         (ref["referrer_user_id"],),
-                    )
+                    ) as referrer_cursor:
+                        referrer_row = await referrer_cursor.fetchone()
                     if referrer_row is not None:
+                        async with db.execute(
+                            "SELECT discord_id FROM users WHERE id = ?",
+                            (booster_user_id,),
+                        ) as booster_cursor:
+                            booster_row = await booster_cursor.fetchone()
+                        if booster_row is not None:
+                            await send_referral_earning_notification(
+                                self.bot,
+                                int(referrer_row["discord_id"]),
+                                int(booster_row["discord_id"]),
+                            )
                         await send_referral_audit_log(
                             self.bot,
                             title="Referral Bonus Earned",

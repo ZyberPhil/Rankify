@@ -1,4 +1,4 @@
-# ValorantDeren Discord Bot
+# Rankify Discord Bot
 
 Discord-only Plattform für Bewerbungen, Aufträge, Referral und Wirtschaft (ohne Website).
 
@@ -39,6 +39,11 @@ Discord-only Plattform für Bewerbungen, Aufträge, Referral und Wirtschaft (ohn
   - `/transactions`
 - Admin:
   - `/admin_ping`
+  - `/set_archived_ticket_category`
+  - `/set_ticket_transcript_channel`
+  - `/set_referral_earning_channel`
+  - `/set_suggestion_channel`
+  - `/suggestions_setup`
   - `/application_decide`
   - `/admin_adjust_balance`
   - `/order_set_status`
@@ -46,6 +51,10 @@ Discord-only Plattform für Bewerbungen, Aufträge, Referral und Wirtschaft (ohn
 ## Audit-Logs und Booster-Meilensteine
 
 - Optionaler Staff-Log-Channel über `STAFF_AUDIT_LOG_CHANNEL_ID`
+- Geschlossene Tickets können über `ARCHIVED_TICKET_CATEGORY_ID` in eine Archiv-Kategorie verschoben werden; der Ticket-Ersteller verliert dabei den Zugriff.
+- Geschlossene Tickets werden als PDF-Transkript im über `/set_ticket_transcript_channel` konfigurierten Staff-Kanal gespeichert und zusätzlich an den Ersteller per DM gesendet.
+- Über `/set_suggestion_channel` und `/suggestions_setup` kann ein Suggestions-Dashboard eingerichtet werden; Vorschläge werden im Zielkanal gespeichert und können dort von Staff angenommen oder abgelehnt werden.
+- Über `/set_referral_earning_channel` kann ein Kanal für Referral-Hinweise gesetzt werden. Die Nachricht nennt nur Empfehlenden und empfohlenen Booster, ohne Verdienstbetrag.
 - Sensitive Aktionen werden als Embed protokolliert
 - Referral-Erstellung kann über `REFERRAL_ALLOWED_ROLE_IDS` auf bestimmte Rollen begrenzt werden
 - Booster-Milestones können über `BOOSTER_COMPLETION_CHANNEL_ID` und `BOOSTER_COMPLETION_THRESHOLDS` automatisch in einen Channel gesendet werden
